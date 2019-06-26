@@ -19,7 +19,9 @@ package testio
 
 import (
 	"io"
+	"os"
 	"testing"
+	"time"
 
 	"gotest.tools/assert"
 )
@@ -27,8 +29,8 @@ import (
 func TestMockFile(t *testing.T) {
 
 	type test struct {
-		name    string
-		r, s, c bool
+		name        string
+		r, s, c, st bool
 	}
 
 	testfunc := func(test *test) func(*testing.T) {
@@ -118,14 +120,48 @@ func TestMockFile(t *testing.T) {
 			} else {
 				assert.NilError(t, mf.Close())
 			}
+
+			if test.st {
+				stc := make(chan struct{}, 0)
+				mfi := MockFileInfo{}
+
+				mf.St = StatF(
+					func() (os.FileInfo, error) {
+						close(stc)
+						return &mfi, anError
+					},
+				)
+
+				fi, err := mf.Stat()
+
+				select {
+				case <-stc:
+				default:
+					t.Fatal("Channel not closed")
+				}
+
+				assert.Equal(t, fi, &mfi)
+				assert.Equal(t, err, anError)
+
+			} else {
+				fi, err := mf.Stat()
+				assert.Equal(t, fi.Name(), "dummyfile")
+				assert.Equal(t, fi.Size(), int64(0))
+				assert.Equal(t, fi.Mode(), os.FileMode(0644))
+				assert.Equal(t, fi.ModTime(), time.Time{})
+				assert.Equal(t, fi.IsDir(), false)
+				assert.Equal(t, fi.Sys(), nil)
+				assert.NilError(t, err)
+			}
+
 		}
 	}
 
 	tests := []test{
-		test{"nil", false, false, false},
-		test{"funcs", true, true, true},
-		test{"mix1", true, false, true},
-		test{"mix2", false, true, false},
+		test{"nil", false, false, false, false},
+		test{"funcs", true, true, true, true},
+		test{"mix1", true, false, true, false},
+		test{"mix2", false, true, false, true},
 	}
 
 	for _, test := range tests {

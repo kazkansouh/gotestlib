@@ -19,6 +19,8 @@ package testio
 
 import (
 	"io"
+	"os"
+	"time"
 )
 
 // Wraps up a function as a io.Reader
@@ -42,6 +44,18 @@ func (f CF) Close() error {
 	return f()
 }
 
+// interface of the os.File.Stat function, used by MockFile
+type Stater interface {
+	Stat() (os.FileInfo, error)
+}
+
+// Wraps up a function as a Stater
+type StatF func() (os.FileInfo, error)
+
+func (f StatF) Stat() (os.FileInfo, error) {
+	return f()
+}
+
 // Implements the ReadSeekCloser interface. It is a collection of a
 // reader, seeker and closer that can be implemented by providing
 // objects or functions.
@@ -58,6 +72,8 @@ type MockFile struct {
 	S io.Seeker
 	// The underlying closer
 	C io.Closer
+	// The underlying stat function
+	St Stater
 }
 
 // When R is not nil, R.Read is used.
@@ -86,3 +102,28 @@ func (f *MockFile) Seek(offset int64, whence int) (int64, error) {
 	}
 	return offset, nil
 }
+
+// When St is not nil, St.Stat is used.  Otherwise a dummy
+// MockFileInfo is returned with length 0.
+func (f *MockFile) Stat() (os.FileInfo, error) {
+	if f.St != nil {
+		return f.St.Stat()
+	}
+	return &MockFileInfo{FileName: "dummyfile", FileMode: 0644}, nil
+}
+
+// Mock type that trivially implements the os.FileInfo interface
+type MockFileInfo struct {
+	FileName    string      // base name of the file
+	FileSize    int64       // length in bytes for regular files; system-dependent for others
+	FileMode    os.FileMode // file mode bits
+	FileModTime time.Time   // modification time
+	FileIsDir   bool        // true if file is directory
+}
+
+func (mfi *MockFileInfo) Name() string       { return mfi.FileName }
+func (mfi *MockFileInfo) Size() int64        { return mfi.FileSize }
+func (mfi *MockFileInfo) Mode() os.FileMode  { return mfi.FileMode }
+func (mfi *MockFileInfo) ModTime() time.Time { return mfi.FileModTime }
+func (mfi *MockFileInfo) IsDir() bool        { return mfi.FileIsDir }
+func (mfi *MockFileInfo) Sys() interface{}   { return nil }
